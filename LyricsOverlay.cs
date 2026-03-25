@@ -175,7 +175,8 @@ namespace LyricsOverlay
         private Point _dragCursor, _dragOrigin;
 
         public static Point DefaultLocation() { return new Point(0, Screen.PrimaryScreen.Bounds.Height - 250); }
-        public static Size  DefaultSize()     { return new Size(Screen.PrimaryScreen.Bounds.Width, 200); }
+        // FIXED: Added 'new' keyword to hide inherited member 'DefaultSize'
+        public new static Size  DefaultSize()     { return new Size(Screen.PrimaryScreen.Bounds.Width, 200); }
 
         public OverlayForm()
         {
@@ -371,10 +372,10 @@ namespace LyricsOverlay
     // ─────────────────────────────────────────────────────────────────────────
     public class ConfigForm : Form
     {
-        private OverlayForm      _overlay;
-        private LyricsHttpServer _server;
-        private Timer            _statusTimer;
-        private bool             _dragMode = false;
+        private OverlayForm                          _overlay;
+        private LyricsHttpServer                    _server;
+        private System.Windows.Forms.Timer          _statusTimer;
+        private bool                                 _dragMode = false;
 
         // Status area
         private Label  _lblStatus, _lblLast;
@@ -468,7 +469,8 @@ namespace LyricsOverlay
             UpdateLabelVisuals();
 
             // ── Status ticker ─────────────────────────────────────────────────
-            _statusTimer = new Timer() { Interval = 800 };
+            // FIXED: Fully qualified Timer to avoid ambiguity
+            _statusTimer = new System.Windows.Forms.Timer() { Interval = 800 };
             _statusTimer.Tick += delegate { UpdateStatus(); };
             _statusTimer.Start();
             UpdateStatus();
@@ -512,7 +514,7 @@ namespace LyricsOverlay
             Label h3 = Hdr("Supported Platforms (install userscripts!)", 10, 200);
             Label lPlat = new Label()
             {
-                Text      = "\u2705 YouTube            — full caption track, synced\r\n" +
+                Text      = "\u2705 YouTube             — full caption track, synced\r\n" +
                             "\u2705 Spotify Web         — lyrics API intercept, synced\r\n" +
                             "\u2705 YouTube Music       — timed lyrics + DOM fallback\r\n" +
                             "\u26A0 Deezer / Tidal      — DOM scrape (best-effort)\r\n" +

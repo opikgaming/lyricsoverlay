@@ -1,8 +1,8 @@
-# LyricsOverlay — Browser Bridge Edition
+# LyricsOverlay
 
 Overlay lyrics on your screen from YouTube, Spotify, and YouTube Music.
-No audio playback inside the app — your browser handles music, this app
-just displays the lyrics as a transparent topmost overlay.
+While your browser plays music, this app displays
+the lyrics as a transparent topmost overlay.
 
 ---
 
