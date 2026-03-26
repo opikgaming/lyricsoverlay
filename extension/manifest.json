@@ -1,0 +1,34 @@
+{
+  "manifest_version": 3,
+  "name": "LyricsOverlay Bridge",
+  "version": "3.1",
+  "description": "Seamlessly syncs YouTube and YouTube Music lyrics to your local LyricsOverlay app.",
+  "permissions": [
+    "storage"
+  ],
+  "host_permissions": [
+    "*://*.youtube.com/*",
+    "*://translate.googleapis.com/*",
+    "*://lrclib.net/*",
+    "http://localhost:7331/*"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://*.youtube.com/*"],
+      "js": ["content.js"],
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["*://*.youtube.com/*"],
+      "js": ["inject.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html"
+  }
+}

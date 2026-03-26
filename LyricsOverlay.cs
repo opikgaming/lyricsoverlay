@@ -11,7 +11,6 @@ using System.IO;
 using System.Net;
 using System.Text;
 using System.Text.RegularExpressions;
-using System.Threading;
 
 namespace LyricsOverlay
 {
@@ -30,7 +29,7 @@ namespace LyricsOverlay
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    //  SUBTITLE LABEL  (same rendering logic as original)
+    //  SUBTITLE LABEL  (Fixed multi-line overlap!)
     // ─────────────────────────────────────────────────────────────────────────
     public class SubtitleLabel : Control
     {
@@ -45,6 +44,7 @@ namespace LyricsOverlay
         public string UpcomingText = "";
         public Color  UpcColor     = Color.Gray;
         public int    UpcPos       = 0;   // 0=above, 1=below
+        public int    UpcGap       = 0;   // ✨ Added Gap Customization
 
         public StringAlignment TextAlignment = StringAlignment.Center;
         public StringAlignment LineAlignment = StringAlignment.Far;
@@ -102,15 +102,32 @@ namespace LyricsOverlay
 
             if (ShowUpcoming && !string.IsNullOrEmpty(UpcomingText))
             {
-                float shift = Font.Height * 0.7f;
-                if (UpcPos == 0) {
-                    if      (LineAlignment == StringAlignment.Near) _cachedMainRect.Y += shift;
-                    else if (LineAlignment == StringAlignment.Far)  _cachedUpcRect.Y  -= shift;
-                    else { _cachedMainRect.Y += shift / 2; _cachedUpcRect.Y -= shift / 2; }
-                } else {
-                    if      (LineAlignment == StringAlignment.Near) _cachedUpcRect.Y  += shift;
-                    else if (LineAlignment == StringAlignment.Far)  _cachedMainRect.Y -= shift;
-                    else { _cachedMainRect.Y -= shift / 2; _cachedUpcRect.Y += shift / 2; }
+                // ✨ Smart Dynamic Height Calculation (ngitung enter)
+                int mainLines = string.IsNullOrEmpty(DisplayText) ? 1 : DisplayText.Split('\n').Length;
+                int upcLines = string.IsNullOrEmpty(UpcomingText) ? 1 : UpcomingText.Split('\n').Length;
+                
+                float mainH = Font.Height * mainLines;
+                float upcH = _upcFont.Height * upcLines;
+                float gap = UpcGap; // ✨ Custom gap offset
+
+                if (UpcPos == 0) { // Above
+                    if (LineAlignment == StringAlignment.Near) {
+                        _cachedMainRect.Y += (upcH + gap);
+                    } else if (LineAlignment == StringAlignment.Far) {
+                        _cachedUpcRect.Y -= (mainH + gap);
+                    } else {
+                        _cachedMainRect.Y += (upcH + gap) / 2f;
+                        _cachedUpcRect.Y -= (mainH + gap) / 2f;
+                    }
+                } else { // Below
+                    if (LineAlignment == StringAlignment.Near) {
+                        _cachedUpcRect.Y += (mainH + gap);
+                    } else if (LineAlignment == StringAlignment.Far) {
+                        _cachedMainRect.Y -= (upcH + gap);
+                    } else {
+                        _cachedMainRect.Y -= (upcH + gap) / 2f;
+                        _cachedUpcRect.Y += (mainH + gap) / 2f;
+                    }
                 }
             }
 
@@ -175,7 +192,6 @@ namespace LyricsOverlay
         private Point _dragCursor, _dragOrigin;
 
         public static Point DefaultLocation() { return new Point(0, Screen.PrimaryScreen.Bounds.Height - 250); }
-        // FIXED: Added 'new' keyword to hide inherited member 'DefaultSize'
         public new static Size  DefaultSize()     { return new Size(Screen.PrimaryScreen.Bounds.Width, 200); }
 
         public OverlayForm()
@@ -288,12 +304,10 @@ namespace LyricsOverlay
             try   { ctx = _listener.EndGetContext(ar); }
             catch { return; }
 
-            // Queue next accept right away
             try { _listener.BeginGetContext(OnContext, null); } catch { return; }
 
             try
             {
-                // CORS — allows browser (and GM_xmlhttpRequest) to call us
                 ctx.Response.Headers.Add("Access-Control-Allow-Origin",  "*");
                 ctx.Response.Headers.Add("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
                 ctx.Response.Headers.Add("Access-Control-Allow-Headers", "Content-Type");
@@ -352,7 +366,6 @@ namespace LyricsOverlay
             ctx.Response.Close();
         }
 
-        // Minimal JSON string extractor — no external deps needed
         private static string JsonStr(string json, string key)
         {
             Match m = Regex.Match(json,
@@ -372,27 +385,23 @@ namespace LyricsOverlay
     // ─────────────────────────────────────────────────────────────────────────
     public class ConfigForm : Form
     {
-        private OverlayForm                          _overlay;
+        private OverlayForm                         _overlay;
         private LyricsHttpServer                    _server;
         private System.Windows.Forms.Timer          _statusTimer;
-        private bool                                 _dragMode = false;
+        private bool                                _dragMode = false;
 
-        // Status area
         private Label  _lblStatus, _lblLast;
         private Button _btnToggle;
 
-        // Display tab controls
         private Button        _btnMainColor, _btnStrColor, _btnUpcColor;
         private CheckBox      _chkStroke, _chkUpc;
-        private NumericUpDown _numSize, _numStrWidth;
+        private NumericUpDown _numSize, _numStrWidth, _numUpcGap; // ✨ Added _numUpcGap
         private ComboBox      _cmbHAlign, _cmbVAlign, _cmbUpcPos;
         private Button        _btnDrag, _btnReset;
 
-        // Server tab
         private NumericUpDown _numPort;
         private Label         _lblEndpoints;
 
-        // Saved overlay position
         private int  _savedX, _savedY;
         private bool _hasSavedPos;
 
@@ -406,34 +415,13 @@ namespace LyricsOverlay
             StartPosition   = FormStartPosition.CenterScreen;
             FormClosing    += OnClosing;
 
-            // ── Top status strip ──────────────────────────────────────────────
-            _lblStatus = new Label()
-            {
-                Location  = new Point(10, 10),
-                Size      = new Size(385, 20),
-                Font      = new Font("Segoe UI", 9, FontStyle.Bold),
-                ForeColor = Color.Gray
-            };
-            _lblLast = new Label()
-            {
-                Location  = new Point(10, 32),
-                Size      = new Size(385, 16),
-                Font      = new Font("Segoe UI", 7.5f),
-                ForeColor = Color.Gray
-            };
-            _btnToggle = new Button()
-            {
-                Text     = "\u266B Hide Overlay",
-                Location = new Point(10, 52),
-                Size     = new Size(385, 28)
-            };
+            _lblStatus = new Label() { Location = new Point(10, 10), Size = new Size(385, 20), Font = new Font("Segoe UI", 9, FontStyle.Bold), ForeColor = Color.Gray };
+            _lblLast = new Label() { Location = new Point(10, 32), Size = new Size(385, 16), Font = new Font("Segoe UI", 7.5f), ForeColor = Color.Gray };
+            _btnToggle = new Button() { Text = "\u266B Hide Overlay", Location = new Point(10, 52), Size = new Size(385, 28) };
             _btnToggle.Click += delegate { _overlay.Visible = !_overlay.Visible; UpdateToggleText(); };
 
-            Controls.Add(_lblStatus);
-            Controls.Add(_lblLast);
-            Controls.Add(_btnToggle);
+            Controls.Add(_lblStatus); Controls.Add(_lblLast); Controls.Add(_btnToggle);
 
-            // ── Tab control ──────────────────────────────────────────────────
             TabControl tab = new TabControl() { Location = new Point(5, 88), Size = new Size(398, 350) };
             Controls.Add(tab);
 
@@ -445,56 +433,32 @@ namespace LyricsOverlay
             BuildServerTab(pgServer);
             BuildDisplayTab(pgDisplay);
 
-            // ── Overlay ──────────────────────────────────────────────────────
             _overlay = new OverlayForm();
             _overlay.Show();
 
-            // ── Load config (before starting server so port is ready) ─────────
             LoadConfig();
 
-            // ── Start HTTP server ─────────────────────────────────────────────
-            _server = new LyricsHttpServer(
-                (int)_numPort.Value,
-                OnLyricsReceived,
-                OnClearReceived
-            );
-            bool ok = _server.Start();
-            if (!ok)
-                MessageBox.Show(
-                    "Could not start HTTP server on port " + _numPort.Value + ".\n" +
-                    "Another program may be using that port.\nTry changing the port.",
-                    "Server Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            _server = new LyricsHttpServer((int)_numPort.Value, OnLyricsReceived, OnClearReceived);
+            if (!_server.Start())
+                MessageBox.Show("Could not start HTTP server on port " + _numPort.Value + ".\nTry changing the port.", "Server Error", MessageBoxButtons.OK, MessageBoxIcon.Warning);
 
             UpdateEndpointLabel();
             UpdateLabelVisuals();
 
-            // ── Status ticker ─────────────────────────────────────────────────
-            // FIXED: Fully qualified Timer to avoid ambiguity
             _statusTimer = new System.Windows.Forms.Timer() { Interval = 800 };
             _statusTimer.Tick += delegate { UpdateStatus(); };
             _statusTimer.Start();
             UpdateStatus();
         }
 
-        // ── Tab builders ─────────────────────────────────────────────────────
-
         private void BuildServerTab(TabPage p)
         {
             Label h1 = Hdr("HTTP Listener", 10, 12);
-
             Label lPort = new Label() { Text = "Port:", Location = new Point(10, 40), AutoSize = true };
-            _numPort = new NumericUpDown()
-            {
-                Location = new Point(55, 37), Width = 80,
-                Minimum = 1024, Maximum = 65535, Value = 7331
-            };
-            Button btnRestart = new Button()
-            {
-                Text = "Restart Server", Location = new Point(150, 36), Size = new Size(105, 24),
-                BackColor = Color.LightCyan
-            };
-            btnRestart.Click += delegate
-            {
+            _numPort = new NumericUpDown() { Location = new Point(55, 37), Width = 80, Minimum = 1024, Maximum = 65535, Value = 7331 };
+            Button btnRestart = new Button() { Text = "Restart Server", Location = new Point(150, 36), Size = new Size(105, 24), BackColor = Color.LightCyan };
+            
+            btnRestart.Click += delegate {
                 _server.Stop();
                 _server = new LyricsHttpServer((int)_numPort.Value, OnLyricsReceived, OnClearReceived);
                 _server.Start();
@@ -503,26 +467,12 @@ namespace LyricsOverlay
             };
 
             Label h2 = Hdr("Endpoints", 10, 74);
-            _lblEndpoints = new Label()
-            {
-                Location  = new Point(10, 92),
-                Size      = new Size(365, 100),
-                Font      = new Font("Courier New", 7.5f),
-                ForeColor = Color.DimGray
-            };
+            _lblEndpoints = new Label() { Location = new Point(10, 92), Size = new Size(365, 100), Font = new Font("Courier New", 7.5f), ForeColor = Color.DimGray };
 
-            Label h3 = Hdr("Supported Platforms (install userscripts!)", 10, 200);
-            Label lPlat = new Label()
-            {
-                Text      = "\u2705 YouTube             — full caption track, synced\r\n" +
-                            "\u2705 Spotify Web         — lyrics API intercept, synced\r\n" +
-                            "\u2705 YouTube Music       — timed lyrics + DOM fallback\r\n" +
-                            "\u26A0 Deezer / Tidal      — DOM scrape (best-effort)\r\n" +
-                            "\u274C SoundCloud          — lyrics rarely available",
-                Location  = new Point(10, 218),
-                Size      = new Size(370, 100),
-                ForeColor = Color.DimGray,
-                Font      = new Font("Segoe UI", 8f)
+            Label h3 = Hdr("Supported Platforms", 10, 200);
+            Label lPlat = new Label() {
+                Text = "\u2705 YouTube\r\n\u2705 Spotify Web\r\n\u2705 YouTube Music\r\n\u26A0 Deezer / Tidal\r\n\u274C SoundCloud",
+                Location = new Point(10, 218), Size = new Size(370, 100), ForeColor = Color.DimGray, Font = new Font("Segoe UI", 8f)
             };
 
             p.Controls.AddRange(new Control[] { h1, lPort, _numPort, btnRestart, h2, _lblEndpoints, h3, lPlat });
@@ -544,9 +494,13 @@ namespace LyricsOverlay
             Label h3 = Hdr("Upcoming Lyric Line", 10, 135);
             _chkUpc    = new CheckBox() { Text = "Enable", Location = new Point(10, 155), Width = 65 };
             _btnUpcColor = Btn("Color", 80, 152, Color.LightGray);
-            _cmbUpcPos   = new ComboBox() { Location = new Point(162, 153), Width = 120, DropDownStyle = ComboBoxStyle.DropDownList };
-            _cmbUpcPos.Items.AddRange(new object[] { "Upcoming: Above", "Upcoming: Below" });
+            _cmbUpcPos   = new ComboBox() { Location = new Point(162, 153), Width = 110, DropDownStyle = ComboBoxStyle.DropDownList };
+            _cmbUpcPos.Items.AddRange(new object[] { "Above", "Below" });
             _cmbUpcPos.SelectedIndex = 0;
+            
+            // ✨ Added gap control for better multi-line spacing!
+            Label lGap = new Label() { Text = "Gap:", Location = new Point(280, 156), AutoSize = true };
+            _numUpcGap = new NumericUpDown() { Location = new Point(315, 153), Width = 55, Minimum = -50, Maximum = 100, Value = 0 };
 
             Label h4 = Hdr("Alignment", 10, 192);
             _cmbHAlign = new ComboBox() { Location = new Point(10, 210), Width = 90, DropDownStyle = ComboBoxStyle.DropDownList };
@@ -567,6 +521,7 @@ namespace LyricsOverlay
             _numStrWidth.ValueChanged  += upd;
             _chkStroke.CheckedChanged  += upd;
             _chkUpc.CheckedChanged     += upd;
+            _numUpcGap.ValueChanged    += upd; // ✨
             _cmbUpcPos.SelectedIndexChanged += upd;
             _cmbHAlign.SelectedIndexChanged += upd;
             _cmbVAlign.SelectedIndexChanged += upd;
@@ -577,44 +532,22 @@ namespace LyricsOverlay
             p.Controls.AddRange(new Control[] {
                 h1, _btnMainColor, lSz, _numSize,
                 h2, _chkStroke, _btnStrColor, lW, _numStrWidth,
-                h3, _chkUpc, _btnUpcColor, _cmbUpcPos,
+                h3, _chkUpc, _btnUpcColor, _cmbUpcPos, lGap, _numUpcGap, // ✨ Added Gap
                 h4, _cmbHAlign, _cmbVAlign,
                 h5, _btnDrag, _btnReset
             });
         }
 
-        // ── Helpers ──────────────────────────────────────────────────────────
-
-        private static Label Hdr(string text, int x, int y)
-        {
-            return new Label() {
-                Text      = text,
-                Location  = new Point(x, y),
-                AutoSize  = true,
-                Font      = new Font("Segoe UI", 8, FontStyle.Bold),
-                ForeColor = Color.DimGray
-            };
-        }
-
-        private static Button Btn(string text, int x, int y, Color back)
-        {
-            return new Button() { Text = text, Location = new Point(x, y), Width = 80, BackColor = back };
-        }
-
-        // ── HTTP callbacks (called from thread pool — must BeginInvoke) ──────
+        private static Label Hdr(string text, int x, int y) { return new Label() { Text = text, Location = new Point(x, y), AutoSize = true, Font = new Font("Segoe UI", 8, FontStyle.Bold), ForeColor = Color.DimGray }; }
+        private static Button Btn(string text, int x, int y, Color back) { return new Button() { Text = text, Location = new Point(x, y), Width = 80, BackColor = back }; }
 
         private void OnLyricsReceived(string main, string upcoming)
         {
-            if (InvokeRequired)
-                BeginInvoke(new Action(delegate { ApplyLyrics(main, upcoming); }));
-            else
-                ApplyLyrics(main, upcoming);
+            if (InvokeRequired) BeginInvoke(new Action(delegate { ApplyLyrics(main, upcoming); }));
+            else ApplyLyrics(main, upcoming);
         }
 
-        private void OnClearReceived()
-        {
-            OnLyricsReceived("", "");
-        }
+        private void OnClearReceived() { OnLyricsReceived("", ""); }
 
         private void ApplyLyrics(string main, string upcoming)
         {
@@ -623,51 +556,29 @@ namespace LyricsOverlay
             _overlay.ForceRedraw();
         }
 
-        // ── UI update helpers ────────────────────────────────────────────────
-
         private void UpdateStatus()
         {
             if (_server == null) return;
-            if (_server.IsRunning)
-            {
-                _lblStatus.Text      = "\u25CF  Server running  \u2014  port " + _server.Port;
-                _lblStatus.ForeColor = Color.Green;
-            }
-            else
-            {
-                _lblStatus.Text      = "\u25CF  Server NOT running";
-                _lblStatus.ForeColor = Color.Red;
-            }
+            if (_server.IsRunning) { _lblStatus.Text = "\u25CF  Server running  \u2014  port " + _server.Port; _lblStatus.ForeColor = Color.Green; }
+            else { _lblStatus.Text = "\u25CF  Server NOT running"; _lblStatus.ForeColor = Color.Red; }
 
             if (_server.LastReceived != default(DateTime))
             {
                 double s   = (DateTime.Now - _server.LastReceived).TotalSeconds;
                 string ago = s < 3 ? "just now" : (s < 60 ? ((int)s) + "s ago" : "idle");
-                string preview = s < 4 && _server.LastMain != null
-                                 ? " \u2014 \u201C" + Trunc(_server.LastMain, 38) + "\u201D"
-                                 : "";
+                string preview = s < 4 && _server.LastMain != null ? " \u2014 \u201C" + Trunc(_server.LastMain, 38) + "\u201D" : "";
                 _lblLast.Text = "Last update: " + ago + preview;
             }
-            else
-            {
-                _lblLast.Text = "Waiting for data from browser...  (open a tab with a userscript)";
-            }
+            else { _lblLast.Text = "Waiting for data from browser...  (open a tab with a userscript)"; }
         }
 
         private void UpdateEndpointLabel()
         {
             int p = _server != null ? _server.Port : (int)_numPort.Value;
-            _lblEndpoints.Text =
-                "POST http://localhost:" + p + "/subtitle\r\n" +
-                "     Body: {\"main\":\"...\",\"upcoming\":\"...\"}\r\n\r\n" +
-                "POST http://localhost:" + p + "/clear\r\n" +
-                "GET  http://localhost:" + p + "/ping  \u2192 pong";
+            _lblEndpoints.Text = "POST http://localhost:" + p + "/subtitle\r\n  Body: {\"main\":\"...\",\"upcoming\":\"...\"}\r\n\r\nPOST http://localhost:" + p + "/clear\r\nGET  http://localhost:" + p + "/ping";
         }
 
-        private void UpdateToggleText()
-        {
-            _btnToggle.Text = _overlay.Visible ? "\u266B Hide Overlay" : "\u266B Show Overlay";
-        }
+        private void UpdateToggleText() { _btnToggle.Text = _overlay.Visible ? "\u266B Hide Overlay" : "\u266B Show Overlay"; }
 
         private void UpdateLabelVisuals()
         {
@@ -685,13 +596,10 @@ namespace LyricsOverlay
             l.ShowUpcoming = _chkUpc.Checked;
             l.UpcColor     = _btnUpcColor.BackColor;
             l.UpcPos       = _cmbUpcPos.SelectedIndex;
+            l.UpcGap       = (int)_numUpcGap.Value; // ✨ Passing Gap value
 
-            l.TextAlignment = _cmbHAlign.SelectedIndex == 0 ? StringAlignment.Near
-                            : _cmbHAlign.SelectedIndex == 2 ? StringAlignment.Far
-                            :                                 StringAlignment.Center;
-            l.LineAlignment = _cmbVAlign.SelectedIndex == 0 ? StringAlignment.Near
-                            : _cmbVAlign.SelectedIndex == 1 ? StringAlignment.Center
-                            :                                 StringAlignment.Far;
+            l.TextAlignment = _cmbHAlign.SelectedIndex == 0 ? StringAlignment.Near : _cmbHAlign.SelectedIndex == 2 ? StringAlignment.Far : StringAlignment.Center;
+            l.LineAlignment = _cmbVAlign.SelectedIndex == 0 ? StringAlignment.Near : _cmbVAlign.SelectedIndex == 1 ? StringAlignment.Center : StringAlignment.Far;
 
             l.UpdateBrushes();
             _overlay.ForceRedraw();
@@ -699,7 +607,7 @@ namespace LyricsOverlay
 
         private void OnDragToggle(object sender, EventArgs e)
         {
-            _dragMode        = !_dragMode;
+            _dragMode         = !_dragMode;
             _btnDrag.Text     = _dragMode ? "\u283F Lock Overlay" : "\u283F Drag Mode";
             _btnDrag.BackColor = _dragMode ? Color.LightGreen : Color.LightCoral;
             _overlay.SetDraggable(_dragMode);
@@ -712,13 +620,7 @@ namespace LyricsOverlay
             if (cd.ShowDialog() == DialogResult.OK) { btn.BackColor = cd.Color; UpdateLabelVisuals(); }
         }
 
-        private static string Trunc(string s, int max)
-        {
-            if (s == null) return "";
-            return s.Length <= max ? s : s.Substring(0, max - 1) + "\u2026";
-        }
-
-        // ── Config persist ───────────────────────────────────────────────────
+        private static string Trunc(string s, int max) { if (s == null) return ""; return s.Length <= max ? s : s.Substring(0, max - 1) + "\u2026"; }
 
         private string CfgPath()
         {
@@ -742,6 +644,7 @@ namespace LyricsOverlay
                     w.WriteLine("UpcEn="      + _chkUpc.Checked);
                     w.WriteLine("UpcColor="   + _btnUpcColor.BackColor.ToArgb());
                     w.WriteLine("UpcPos="     + _cmbUpcPos.SelectedIndex);
+                    w.WriteLine("UpcGap="     + _numUpcGap.Value); // ✨ Saving Gap
                     w.WriteLine("AlignH="     + _cmbHAlign.SelectedIndex);
                     w.WriteLine("AlignV="     + _cmbVAlign.SelectedIndex);
                     w.WriteLine("ShowOverlay="+ _overlay.Visible);
@@ -774,6 +677,7 @@ namespace LyricsOverlay
                     else if (k == "UpcEn"      && bool.TryParse(v, out bv)) _chkUpc.Checked         = bv;
                     else if (k == "UpcColor"   && int.TryParse(v, out iv))  _btnUpcColor.BackColor  = Color.FromArgb(iv);
                     else if (k == "UpcPos"     && int.TryParse(v, out iv))  _cmbUpcPos.SelectedIndex = Math.Min(1, Math.Max(0, iv));
+                    else if (k == "UpcGap"     && int.TryParse(v, out iv))  _numUpcGap.Value         = Math.Max(-50, Math.Min(100, iv)); // ✨ Loading Gap
                     else if (k == "AlignH"     && int.TryParse(v, out iv))  _cmbHAlign.SelectedIndex = Math.Min(2, Math.Max(0, iv));
                     else if (k == "AlignV"     && int.TryParse(v, out iv))  _cmbVAlign.SelectedIndex = Math.Min(2, Math.Max(0, iv));
                     else if (k == "ShowOverlay"&& bool.TryParse(v, out bv)) _overlay.Visible         = bv;

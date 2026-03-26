@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LyricsOverlay Settings</title>
+	<style>
+		body {
+			width: 320px;
+			padding: 18px;
+			font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+			background: #0f0f10;
+			color: #e4e4e7;
+			margin: 0;
+			letter-spacing: 0.2px;
+		}
+
+		h2 {
+			margin: 0 0 18px 0;
+			font-size: 16px;
+			font-weight: 600;
+			color: #fafafa;
+			display: flex;
+			align-items: center;
+			gap: 6px;
+			padding-bottom: 10px;
+			border-bottom: 1px solid #27272a;
+		}
+
+		.setting-group {
+			margin-bottom: 14px;
+			display: flex;
+			justify-content: space-between;
+			align-items: center;
+			padding: 10px 12px;
+			background: #18181b;
+			border: 1px solid #232326;
+			border-radius: 8px;
+			transition: 0.2s ease;
+		}
+
+		.setting-group:hover {
+			border-color: #2f2f35;
+			background: #1c1c20;
+		}
+
+		label {
+			font-size: 13px;
+			font-weight: 500;
+			color: #c7c7cc;
+		}
+
+		select {
+			background: #101012;
+			color: #f4f4f5;
+			border: 1px solid #2a2a2e;
+			padding: 6px 10px;
+			border-radius: 6px;
+			font-size: 12.5px;
+			outline: none;
+			cursor: pointer;
+			transition: 0.2s ease;
+		}
+
+		select:hover {
+			border-color: #3a3a40;
+		}
+
+		select:focus {
+			border-color: #ffffff;
+			background: #141416;
+		}
+
+		/* Toggle Switch */
+		.switch {
+			position: relative;
+			display: inline-block;
+			width: 38px;
+			height: 20px;
+		}
+
+		.switch input {
+			opacity: 0;
+			width: 0;
+			height: 0;
+		}
+
+		.slider {
+			position: absolute;
+			cursor: pointer;
+			inset: 0;
+			background-color: #2a2a2e;
+			transition: 0.25s ease;
+			border-radius: 999px;
+			border: 1px solid #323238;
+		}
+
+		.slider:before {
+			position: absolute;
+			content: "";
+			height: 14px;
+			width: 14px;
+			left: 2.5px;
+			bottom: 2.5px;
+			background-color: #fafafa;
+			transition: 0.25s ease;
+			border-radius: 50%;
+		}
+
+		input:checked + .slider {
+			background-color: #ffffff;
+			border-color: #ffffff;
+		}
+
+		input:checked + .slider:before {
+			transform: translateX(18px);
+			background-color: #0f0f10;
+		}
+
+		.footer {
+			font-size: 11px;
+			color: #6b6b72;
+			text-align: center;
+			margin-top: 22px;
+			opacity: 0.7;
+		}
+	</style>
+</head>
+<body>
+    <h2>🎶 LyricsOverlay Bridge</h2>
+    
+    <div class="setting-group">
+        <label for="displayMode">Display Mode</label>
+        <select id="displayMode">
+            <option value="all">All Lines</option>
+            <option value="top">Top Line Only</option>
+        </select>
+    </div>
+
+    <div class="setting-group">
+        <label for="primarySource">Primary Source</label>
+        <select id="primarySource">
+            <option value="yt">YouTube Captions</option>
+            <option value="lrclib">Lrclib.net</option>
+        </select>
+    </div>
+
+    <div class="setting-group">
+        <label for="romajiToggle">Romaji Conversion</label>
+        <label class="switch">
+            <input type="checkbox" id="romajiToggle">
+            <span class="slider"></span>
+        </label>
+    </div>
+
+    <div class="footer">Changes are applied immediately.</div>
+
+    <script src="popup.js"></script>
+</body>
+</html>
