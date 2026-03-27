@@ -1,17 +1,23 @@
 {
   "manifest_version": 3,
   "name": "LyricsOverlay Bridge",
-  "version": "3.1",
-  "description": "Seamlessly syncs YouTube and YouTube Music lyrics to your local LyricsOverlay app.",
+  "version": "4.5",
+  "description": "Seamlessly syncs YouTube, Lrclib, Legato, and Musixmatch lyrics to your local C# LyricsOverlay app.",
   "permissions": [
-    "storage"
+    "storage",
+    "offscreen"
   ],
   "host_permissions": [
     "*://*.youtube.com/*",
     "*://translate.googleapis.com/*",
     "*://lrclib.net/*",
+    "*://lyrics-api.boidu.dev/*",
+    "*://lyrics.api.dacubeking.com/*",
     "http://localhost:7331/*"
   ],
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'self'; frame-src 'self' https://lyrics.api.dacubeking.com;"
+  },
   "background": {
     "service_worker": "background.js"
   },

@@ -471,7 +471,7 @@ namespace LyricsOverlay
 
             Label h3 = Hdr("Supported Platforms", 10, 200);
             Label lPlat = new Label() {
-                Text = "\u2705 YouTube\r\n\u2705 Spotify Web\r\n\u2705 YouTube Music\r\n\u26A0 Deezer / Tidal\r\n\u274C SoundCloud",
+                Text = "\u2705 YouTube\r\n\u2705 YouTube Music\r\n\u26A0 Spotify Web\r\n\u274C Deezer / Tidal\r\n\u274C SoundCloud",
                 Location = new Point(10, 218), Size = new Size(370, 100), ForeColor = Color.DimGray, Font = new Font("Segoe UI", 8f)
             };
 
