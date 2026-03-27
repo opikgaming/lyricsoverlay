@@ -73,42 +73,59 @@ function parseLRC(lrcText) {
     return parsed;
 }
 
-// --- TTML Parser (Apple Music TTML Parser) ---
+// --- TTML Parser (Lebih Pinter & Anti Badai) ---
 function parseTTML(ttmlText) {
     if (!ttmlText || typeof ttmlText !== 'string') return [];
+    
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(ttmlText, "text/xml");
     const parsed = [];
-    
-    // Regex to extract <p> tags and their begin times
-    const pRegex = /<p[^>]*begin="([^"]+)"[^>]*>([\s\S]*?)<\/p>/g;
-    let match;
-    
-    while ((match = pRegex.exec(ttmlText)) !== null) {
-        const beginStr = match[1];
-        // Strip inner tags (like <span xmlns...>) to get raw lyrics
-        const text = match[2].replace(/<[^>]+>/g, '').trim(); 
+    const romajiMap = {};
+
+	const transNodes = doc.getElementsByTagName('transliteration');
+		for (let node of transNodes) {
+			const lang = node.getAttribute('xml:lang');
+			// Nangkep ja-Latn, ko-Latn, zh-Latn, dll 💖
+			if (lang && lang.includes('-Latn')) { 
+				const texts = node.getElementsByTagName('text');
+				for (let t of texts) {
+					const key = t.getAttribute('for');
+					if (key) romajiMap[key] = t.textContent.replace(/\s+/g, ' ').trim();
+				}
+				break; // Udah dapet yang Latin, langsung cabut aja biar ga dobel!
+			}
+		}
+
+    // 2. Parser Lirik Utama
+    const pNodes = doc.getElementsByTagName('p');
+    for (let p of pNodes) {
+        const beginStr = p.getAttribute('begin');
+        const key = p.getAttribute('itunes:key') || p.getAttribute('id');
+        const text = p.textContent.replace(/\s+/g, ' ').trim();
         
         if (beginStr && text) {
             const timeParts = beginStr.split(':');
             let ms = 0;
             
-            // Handle HH:MM:SS.sss, MM:SS.sss, AND SS.sss formats!
             if (timeParts.length === 3) {
-                ms += parseInt(timeParts[0]) * 3600000; // Hours
-                ms += parseInt(timeParts[1]) * 60000;   // Minutes
-                ms += parseFloat(timeParts[2]) * 1000;  // Seconds
+                ms += parseInt(timeParts[0]) * 3600000 + parseInt(timeParts[1]) * 60000 + parseFloat(timeParts[2]) * 1000;
             } else if (timeParts.length === 2) {
-                ms += parseInt(timeParts[0]) * 60000;
-                ms += parseFloat(timeParts[1]) * 1000;
+                ms += parseInt(timeParts[0]) * 60000 + parseFloat(timeParts[1]) * 1000;
             } else if (timeParts.length === 1) {
-                ms += parseFloat(timeParts[0]) * 1000;  // Just seconds (Apple Music does this < 1 min)
+                ms += parseFloat(timeParts[0]) * 1000;
             }
-            
+
             if (!isNaN(ms)) {
-                parsed.push({ startTimeMs: Math.round(ms), durationMs: 0, text });
+                parsed.push({ 
+                    startTimeMs: Math.round(ms), 
+                    durationMs: 0, 
+                    text: text,
+                    romajiText: key && romajiMap[key] ? romajiMap[key] : null // Romaji is here
+                });
             }
         }
     }
-    
+
     parsed.sort((a, b) => a.startTimeMs - b.startTimeMs);
     for (let i = 0; i < parsed.length - 1; i++) {
         parsed[i].durationMs = parsed[i+1].startTimeMs - parsed[i].startTimeMs;
@@ -239,25 +256,38 @@ function applyPreferredSource() {
 
     chrome.runtime.sendMessage({ action: 'updateBadge', source: activeProvider });
 
-    if (chosen.length === 0) { 
+	if (chosen.length === 0) { 
         activeLyrics = []; 
         isProcessingRomaji = false;
         return; 
     }
 
     if (settings.romajiMode) {
-        // ✨ FIX: Do not instantly assign chosen array to activeLyrics to prevent raw JP text flash
-        isProcessingRomaji = true;
+        const hasNativeRomaji = chosen.some(l => l.romajiText);
         
-        // Clone the array so we don't accidentally mutate the original cache with Romaji text
-        const clonedChosen = JSON.parse(JSON.stringify(chosen));
-        
-        applyRomaji(clonedChosen).then(res => { 
-            activeLyrics = res; 
-            isProcessingRomaji = false; // Release the lock
-        });
+        if (hasNativeRomaji) {
+            console.log("[Bridge-Content]   Got romanized lyrics.");
+            activeLyrics = chosen.map(l => ({
+                startTimeMs: l.startTimeMs,
+                durationMs: l.durationMs,
+                text: l.romajiText || l.text 
+            }));
+            isProcessingRomaji = false;
+        } else {
+            isProcessingRomaji = true;
+            const clonedChosen = JSON.parse(JSON.stringify(chosen));
+            applyRomaji(clonedChosen).then(res => { 
+                activeLyrics = res; 
+                isProcessingRomaji = false; 
+            });
+        }
     } else {
-        activeLyrics = chosen;
+        // No romaji if disabled
+        activeLyrics = chosen.map(l => ({
+            startTimeMs: l.startTimeMs,
+            durationMs: l.durationMs,
+            text: l.text
+        }));
         isProcessingRomaji = false;
     }
 }
