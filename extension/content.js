@@ -13,8 +13,8 @@ let lastMain = null;
 let lastUpc = null;
 let videoEl = null;
 
-// ✨ NEW: Prevent raw lyrics from showing while Romaji is processing
 let isProcessingRomaji = false; 
+let isTransitioning = false; // ✨ TAHAN SYNC PAS GANTI LAGU ✨
 
 chrome.storage.local.get(settings, (res) => { settings = res; });
 
@@ -289,7 +289,14 @@ async function applyRomaji(lyricsArray) {
     });
     if (toProcess.length === 0) return results;
 
-    const preprocess = (txt) => sl === 'ja' ? txt.replace(/君/g, 'kimi ') : txt;
+    // Hardcoded JP kanji
+    const preprocess = (txt) => {
+        if (sl !== 'ja') return txt;
+        return txt.replace(/君/g, 'kimi ')
+                  .replace(/方/g, 'hou ')
+                  .replace(/の中/g, 'no naka ')
+                  .replace(/側/g, 'gawa ');
+    };
 
     const chunks = [];
     let curChunk = [], curLen = 0;
@@ -338,7 +345,7 @@ async function applyRomaji(lyricsArray) {
 // --- Synchronization Loop ---
 function syncLoop(forcedTimeMs = null) {
     // ✨ FIX: Suppress updating the UI if Romaji translation is currently in progress
-    if (!videoEl || isProcessingRomaji) return; 
+    if (!videoEl || isProcessingRomaji || isTransitioning) return;
     
     const ms = forcedTimeMs !== null ? forcedTimeMs : videoEl.currentTime * 1000;
 
@@ -374,9 +381,13 @@ function checkSongChange() {
     
     if (newTrack && newTrack !== currentTrackName) {
         currentTrackName = newTrack;
+        isTransitioning = true; // Kunci layarnya! 🔒
         ytLyricsCache = []; lrcLyricsCache = []; legatoCache = []; cubeyCache = []; activeLyrics = [];
         clearApp();
-        setTimeout(fetchExternalSources, 2000); 
+        setTimeout(() => {
+            isTransitioning = false; // Buka lagi 🔓
+            fetchExternalSources();
+        }, 2000); 
     }
 }
 
