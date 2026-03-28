@@ -1,12 +1,13 @@
 // --- Configuration & State ---
 const POLL_MS = 100;
-let settings = { displayMode: 'all', primarySource: 'yt', romajiMode: false };
+let settings = { displayMode: 'all', primarySource: 'yt', romajiMode: false, isActive: true };
 
+// 📦 Cache buat nyimpen lirik dari berbagai sumber
 let ytLyricsCache = [];
 let lrcLyricsCache = [];
 let legatoCache = [];
 let cubeyCache = [];
-let activeLyrics = [];
+let activeLyrics = []; // Lirik yang lagi dipake buat ditampilin
 
 let currentTrackName = ''; 
 let lastMain = null;
@@ -16,6 +17,7 @@ let videoEl = null;
 let isProcessingRomaji = false; 
 let isTransitioning = false; // ✨ TAHAN SYNC PAS GANTI LAGU ✨
 
+// Sinkronisasi settingan dari popup/storage
 chrome.storage.local.get(settings, (res) => { settings = res; });
 
 chrome.runtime.onMessage.addListener((request) => {
@@ -29,6 +31,7 @@ chrome.runtime.onMessage.addListener((request) => {
     }
 });
 
+// 🚀 KIRIM KE BACKGROUND (Background yang bakal nerusin tembakan ke C# localhost)
 function sendToApp(main, upcoming) {
     if (main === lastMain && upcoming === lastUpc) return;
     lastMain = main; lastUpc = upcoming;
@@ -40,12 +43,13 @@ function clearApp() {
     chrome.runtime.sendMessage({ action: 'clearSubtitle' });
 }
 
+// Dengerin event lirik langsung dari YouTube UI (kalau ada)
 window.addEventListener('message', (event) => {
     if (event.source !== window || event.data.type !== 'LYRICS_BRIDGE_YT') return;
     processYTCaptions(event.data.events);
 });
 
-// --- LRC Parser ---
+// --- 📝 LRC Parser (Standard) ---
 function parseLRC(lrcText) {
     if (!lrcText || typeof lrcText !== 'string') return [];
     const lines = lrcText.split('\n');
@@ -73,7 +77,7 @@ function parseLRC(lrcText) {
     return parsed;
 }
 
-// --- TTML Parser (Lebih Pinter & Anti Badai) ---
+// --- 💎 TTML Parser (Buat nangkep LEGATO & Romaji Bawaannya) ---
 function parseTTML(ttmlText) {
     if (!ttmlText || typeof ttmlText !== 'string') return [];
     
@@ -82,25 +86,26 @@ function parseTTML(ttmlText) {
     const parsed = [];
     const romajiMap = {};
 
-	const transNodes = doc.getElementsByTagName('transliteration');
-		for (let node of transNodes) {
-			const lang = node.getAttribute('xml:lang');
-			// Nangkep ja-Latn, ko-Latn, zh-Latn, dll 💖
-			if (lang && lang.includes('-Latn')) { 
-				const texts = node.getElementsByTagName('text');
-				for (let t of texts) {
-					const key = t.getAttribute('for');
-					if (key) romajiMap[key] = t.textContent.replace(/\s+/g, ' ').trim();
-				}
-				break; // Udah dapet yang Latin, langsung cabut aja biar ga dobel!
-			}
-		}
+    // 1. Cari tag transliterasi (Romaji Native dari API)
+    const transNodes = doc.getElementsByTagName('transliteration');
+    for (let node of transNodes) {
+        const lang = node.getAttribute('xml:lang');
+        // ✨ Nangkep ja-Latn (Jepang Romaji), ko-Latn, zh-Latn, dll.
+        if (lang && lang.includes('-Latn')) { 
+            const texts = node.getElementsByTagName('text');
+            for (let t of texts) {
+                const key = t.getAttribute('for');
+                if (key) romajiMap[key] = t.textContent.replace(/\s+/g, ' ').trim();
+            }
+            break; // Kalau udah dapet versi Latin, langsung stop nyari biar gak dobel!
+        }
+    }
 
     // 2. Parser Lirik Utama
     const pNodes = doc.getElementsByTagName('p');
     for (let p of pNodes) {
         const beginStr = p.getAttribute('begin');
-        const key = p.getAttribute('itunes:key') || p.getAttribute('id');
+        const key = p.getAttribute('itunes:key') || p.getAttribute('id'); // ID buat nyocokin sama romajiMap
         const text = p.textContent.replace(/\s+/g, ' ').trim();
         
         if (beginStr && text) {
@@ -120,7 +125,8 @@ function parseTTML(ttmlText) {
                     startTimeMs: Math.round(ms), 
                     durationMs: 0, 
                     text: text,
-                    romajiText: key && romajiMap[key] ? romajiMap[key] : null // Romaji is here
+                    // ✨ SIMPEN ROMAJI-NYA DI SINI KALAU ADA MATCH DARI TRANSLITERATION DI ATAS
+                    romajiText: key && romajiMap[key] ? romajiMap[key] : null 
                 });
             }
         }
@@ -135,12 +141,13 @@ function parseTTML(ttmlText) {
     return parsed;
 }
 
-// --- Data Processing ---
+// --- 🌐 Data Processing & Fetching ---
 function processYTCaptions(rawEvents) {
     if (!rawEvents) return;
     let valid = rawEvents.filter(ev => ev.segs && ev.segs.some(s => s.utf8 && s.utf8.trim().length > 0));
     valid.sort((a, b) => (a.tStartMs || 0) - (b.tStartMs || 0));
 
+    // Rapihin overlap waktu yang tipis-tipis
     for (let i = 1; i < valid.length; i++) {
         let prev = valid[i-1], curr = valid[i];
         if (Math.abs((curr.tStartMs || 0) - (prev.tStartMs || 0)) <= 150) {
@@ -177,9 +184,9 @@ function fetchExternalSources() {
 
     console.log(`[Bridge-Content] 🎵 Target: "${title}" | Duration: ${duration}s | Album: ${album}`);
 
+    // Fetch LRCLIB
     chrome.runtime.sendMessage({ action: 'fetchLrcLib', query: qStr }, (res) => {
         if (res && res.length > 0 && res[0].syncedLyrics) {
-            // ✨ NEW: Added missing LRCLib debug comments in formal English ✨
             console.log("[Bridge-Content] ✅ Successfully retrieved synced lyrics from LRCLib.");
             lrcLyricsCache = parseLRC(res[0].syncedLyrics);
             applyPreferredSource();
@@ -188,6 +195,7 @@ function fetchExternalSources() {
         }
     });
 
+    // Fetch LEGATO
     chrome.runtime.sendMessage({ action: 'fetchLegato', query: { s: title, a: artist, d: duration, al: album } }, (res) => {
         if (res) {
             if (res.ttml) {
@@ -233,6 +241,7 @@ function fetchCubeyOnly() {
     });
 }
 
+// 🎯 FILTER UTAMA: Nentuin Sumber Lirik Mana Yang Mau Dipakai & Apakah Harus Romaji
 function applyPreferredSource() {
     let chosen = [];
     let activeProvider = 'none';
@@ -244,10 +253,12 @@ function applyPreferredSource() {
         'yt': ytLyricsCache
     };
 
+    // Cek apakah sumber pilihan user (primarySource) udah ada datanya
     if (sources[settings.primarySource] && sources[settings.primarySource].length > 0) {
         chosen = sources[settings.primarySource];
         activeProvider = settings.primarySource;
     } else {
+        // Fallback otomatis ke sumber yang tersedia kalau sumber utama kosong
         if (cubeyCache.length > 0) { chosen = cubeyCache; activeProvider = 'cubey'; }
         else if (legatoCache.length > 0) { chosen = legatoCache; activeProvider = 'legato'; }
         else if (lrcLyricsCache.length > 0) { chosen = lrcLyricsCache; activeProvider = 'lrclib'; }
@@ -256,24 +267,29 @@ function applyPreferredSource() {
 
     chrome.runtime.sendMessage({ action: 'updateBadge', source: activeProvider });
 
-	if (chosen.length === 0) { 
+    if (chosen.length === 0) { 
         activeLyrics = []; 
         isProcessingRomaji = false;
         return; 
     }
 
+    // ✨ INI DIA LOGIKA ROMAJI-NYA! ✨
     if (settings.romajiMode) {
+        // Cek apakah di dalam 'chosen' ada yang punya l.romajiText (berarti dapet dari Legato/TTML)
         const hasNativeRomaji = chosen.some(l => l.romajiText);
         
         if (hasNativeRomaji) {
-            console.log("[Bridge-Content]   Got romanized lyrics.");
+            console.log("[Bridge-Content] 🌸 Got NATIVE romanized lyrics (Skipping Google Translate!)");
+            // Langsung timpa teks dengan Romaji bawaan API Legato
             activeLyrics = chosen.map(l => ({
                 startTimeMs: l.startTimeMs,
                 durationMs: l.durationMs,
-                text: l.romajiText || l.text 
+                text: l.romajiText || l.text // Kalau baris tertentu kosong romajinya, fallback ke teks biasa
             }));
-            isProcessingRomaji = false;
+            // KASIH TAU SISTEM: GAK USAH NGE-PROSES TRANSLATE GOOGLE!
+            isProcessingRomaji = false; 
         } else {
+            // Kalau nggak ada romaji native, BARU tembak ke Google Translate
             isProcessingRomaji = true;
             const clonedChosen = JSON.parse(JSON.stringify(chosen));
             applyRomaji(clonedChosen).then(res => { 
@@ -282,7 +298,7 @@ function applyPreferredSource() {
             });
         }
     } else {
-        // No romaji if disabled
+        // Kalau user matiin mode Romaji, ya pakai lirik aslinya aja
         activeLyrics = chosen.map(l => ({
             startTimeMs: l.startTimeMs,
             durationMs: l.durationMs,
@@ -292,7 +308,7 @@ function applyPreferredSource() {
     }
 }
 
-// --- Romaji Processor ---
+// --- 🌐 Romaji Processor (Google Translate Batch Mode) ---
 async function applyRomaji(lyricsArray) {
     const fullText = lyricsArray.map(l => l.text).join(' ');
     let sl = '';
@@ -319,7 +335,7 @@ async function applyRomaji(lyricsArray) {
     });
     if (toProcess.length === 0) return results;
 
-    // Hardcoded JP kanji
+    // Hardcoded JP kanji buat koreksi
     const preprocess = (txt) => {
         if (sl !== 'ja') return txt;
         return txt.replace(/君/g, 'kimi ')
@@ -372,9 +388,10 @@ async function applyRomaji(lyricsArray) {
     });
 }
 
-// --- Synchronization Loop ---
+// --- ⏱️ Synchronization Loop (Main Engine) ---
 function syncLoop(forcedTimeMs = null) {
-    // ✨ FIX: Suppress updating the UI if Romaji translation is currently in progress
+    // ✨ FIX: Jangan update lirik kalau lagi proses translate atau lagi animasi ganti lagu!
+	if (!settings.isActive) return;
     if (!videoEl || isProcessingRomaji || isTransitioning) return;
     
     const ms = forcedTimeMs !== null ? forcedTimeMs : videoEl.currentTime * 1000;
@@ -397,6 +414,7 @@ function syncLoop(forcedTimeMs = null) {
             } else { sendToApp('', ''); }
         }
     } else {
+        // Fallback UI YouTube Music Asli kalau semua cache kosong
         const domLyrics = document.querySelector('.ytmusic-player-lyrics-renderer [focused], .ytmusic-player-lyrics-renderer .active');
         if (domLyrics) {
             const nextDom = domLyrics.nextElementSibling;
@@ -405,28 +423,45 @@ function syncLoop(forcedTimeMs = null) {
     }
 }
 
+// 🎧 Cek otomatis kalau lagu ganti dari MediaSession
 function checkSongChange() {
     if (!navigator.mediaSession || !navigator.mediaSession.metadata) return;
-    const newTrack = navigator.mediaSession.metadata.title;
+    // Tambahin artist biar lebih akurat kalau misal judul lagunya kebetulan sama
+    const newTrack = navigator.mediaSession.metadata.title + " - " + navigator.mediaSession.metadata.artist;
     
     if (newTrack && newTrack !== currentTrackName) {
         currentTrackName = newTrack;
-        isTransitioning = true; // Kunci layarnya! 🔒
+        isTransitioning = true; // Kunci layarnya! 🔒 (Mencegah teks lama nyangkut)
+        
+        // Bersihin semua otak & ingatan
         ytLyricsCache = []; lrcLyricsCache = []; legatoCache = []; cubeyCache = []; activeLyrics = [];
         clearApp();
+        
+        // Jeda 2 detik sebelum mikir lagi, biar animasi/loading lagu barunya kelar
         setTimeout(() => {
-            isTransitioning = false; // Buka lagi 🔓
-            fetchExternalSources();
+            isTransitioning = false; // Buka lagi gemboknya 🔓
+			if (settings.isActive) {
+				fetchExternalSources(); // ✨ CUMA NGE-FETCH KALAU NYALA!
+			}
         }, 2000); 
     }
 }
 
+// Pasang pengait (hook) ke video player
 function initVideoHook() {
     videoEl = document.querySelector('video');
     if (videoEl) {
         videoEl.addEventListener('timeupdate', () => {
             syncLoop(videoEl.currentTime * 1000);
         });
+        
+        // ✨ CEGAT DISINI PAS LAGU GANTI BIAR LIRIK LAMA GAK BOCOR ✨
+        videoEl.addEventListener('emptied', () => {
+            isTransitioning = true; 
+            ytLyricsCache = []; lrcLyricsCache = []; legatoCache = []; cubeyCache = []; activeLyrics = [];
+            clearApp(); 
+        });
+
     } else {
         setTimeout(initVideoHook, 1000); 
     }
@@ -434,6 +469,7 @@ function initVideoHook() {
 
 initVideoHook();
 
+// Denyut nadi aplikasi (loop)
 setInterval(() => {
     checkSongChange();
     if (document.hasFocus()) syncLoop(); 

@@ -1,38 +1,105 @@
 document.addEventListener('DOMContentLoaded', () => {
-    const displayMode = document.getElementById('displayMode');
-    const primarySource = document.getElementById('primarySource');
-    const romajiToggle = document.getElementById('romajiToggle');
+    // Tangkap semua elemen dari popup.html
+    const toggleBtn = document.getElementById('toggleBtn');
+    const sourceSelect = document.getElementById('sourceSelect');
+    const romajiBtn = document.getElementById('romajiBtn');
+    const displayBtn = document.getElementById('displayBtn');
 
-    // Load saved settings
+    // Load settingan yang kesimpen (Defaultnya: ON, Legato, Romaji OFF, Semua Baris)
     chrome.storage.local.get({
-        displayMode: 'all',
-        primarySource: 'yt',
-        romajiMode: false
+        isActive: true,
+        primarySource: 'legato',
+        romajiMode: false,
+        displayMode: 'all'
     }, (settings) => {
-        displayMode.value = settings.displayMode;
-        primarySource.value = settings.primarySource;
-        romajiToggle.checked = settings.romajiMode;
+        updateUI(settings);
     });
 
-    // Save and notify content script on change
-    function updateSettings() {
-        const newSettings = {
-            displayMode: displayMode.value,
-            primarySource: primarySource.value,
-            romajiMode: romajiToggle.checked
-        };
-        
-        chrome.storage.local.set(newSettings, () => {
-            // Notify active tabs
-            chrome.tabs.query({ url: "*://*.youtube.com/*" }, (tabs) => {
-                for (const tab of tabs) {
-                    chrome.tabs.sendMessage(tab.id, { action: "settingsUpdated", settings: newSettings });
-                }
+    // ── EVENT LISTENERS (Pas tombol dipencet) ──
+
+    toggleBtn.addEventListener('click', () => {
+        chrome.storage.local.get(['isActive'], (res) => {
+            const newState = res.isActive === false ? true : false;
+            saveAndNotify({ isActive: newState });
+        });
+    });
+
+    sourceSelect.addEventListener('change', (e) => {
+        saveAndNotify({ primarySource: e.target.value });
+    });
+
+    romajiBtn.addEventListener('click', () => {
+        chrome.storage.local.get(['romajiMode'], (res) => {
+            const newState = !res.romajiMode;
+            saveAndNotify({ romajiMode: newState });
+        });
+    });
+
+    displayBtn.addEventListener('click', () => {
+        chrome.storage.local.get(['displayMode'], (res) => {
+            const newState = res.displayMode === 'all' ? 'top' : 'all';
+            saveAndNotify({ displayMode: newState });
+        });
+    });
+
+    // ── FUNGSI INTI ──
+
+    // Simpan ke storage & teriak ke Content Script biar langsung update!
+    function saveAndNotify(newSetting) {
+        chrome.storage.local.get({
+            isActive: true, primarySource: 'yt', romajiMode: false, displayMode: 'all'
+        }, (currentSettings) => {
+            const updatedSettings = { ...currentSettings, ...newSetting };
+            
+            chrome.storage.local.set(updatedSettings, () => {
+                updateUI(updatedSettings); // Update warna tombol di pop-up
+
+                // Beritahu content.js yang lagi jalan di tab YouTube
+                chrome.tabs.query({active: true, currentWindow: true}, (tabs) => {
+                    if (tabs[0]) {
+                        chrome.tabs.sendMessage(tabs[0].id, {
+                            action: "settingsUpdated", 
+                            settings: updatedSettings
+                        }).catch(() => {}); // Cuekin error kalau tabnya bukan YouTube
+                    }
+                });
+
+                // Beritahu background.js juga (jaga-jaga)
+                chrome.runtime.sendMessage({
+                    action: "settingsUpdated", 
+                    settings: updatedSettings
+                }).catch(() => {});
             });
         });
     }
 
-    displayMode.addEventListener('change', updateSettings);
-    primarySource.addEventListener('change', updateSettings);
-    romajiToggle.addEventListener('change', updateSettings);
+    // Ganti teks dan warna tombol sesuai status
+    function updateUI(settings) {
+        // Toggle Master
+        toggleBtn.textContent = settings.isActive ? "ON" : "OFF";
+        if (settings.isActive) {
+            toggleBtn.classList.remove('off');
+        } else {
+            toggleBtn.classList.add('off');
+        }
+
+        // Dropdown Source
+        sourceSelect.value = settings.primarySource;
+
+        // Toggle Romaji
+        romajiBtn.textContent = settings.romajiMode ? "ON" : "OFF";
+        if (settings.romajiMode) {
+            romajiBtn.classList.remove('off');
+        } else {
+            romajiBtn.classList.add('off');
+        }
+
+        // Toggle Display Mode
+        displayBtn.textContent = settings.displayMode === 'all' ? "ALL" : "ONE LINE";
+        if (settings.displayMode !== 'all') {
+            displayBtn.classList.add('off');
+        } else {
+            displayBtn.classList.remove('off');
+        }
+    }
 });
